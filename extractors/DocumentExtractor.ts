@@ -99,6 +99,51 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 			}
 		}
 
+		// If still no documents found, try extracting from table format
+		if (documentLinks.length === 0) {
+			try {
+				const documentTables = [
+					'table.documents',
+					'table.attachments',
+					'table[data-documents]',
+					'.documents table',
+					'.attachments table',
+				]
+
+				for (const tableSelector of documentTables) {
+					const table = page.locator(tableSelector).first()
+					const tableCount = await table.count()
+					if (tableCount > 0) {
+						const tableData = await this.extractTable(page, tableSelector)
+						
+						// Convert table rows to document links
+						for (const row of tableData) {
+							// Look for file name and URL columns
+							const fileName = row['file_name'] || row['name'] || row['document'] || row['file'] || ''
+							const fileUrl = row['url'] || row['link'] || row['download'] || row['href'] || ''
+							
+							if (fileName || fileUrl) {
+								// Find the actual link element if possible
+								const url = fileUrl || fileName
+								if (url) {
+									const link = page.locator(`a[href*="${url}"], a:has-text("${fileName}")`).first()
+									const linkCount = await link.count()
+									if (linkCount > 0) {
+										documentLinks.push(link)
+									}
+								}
+							}
+						}
+						
+						if (documentLinks.length > 0) break
+					}
+				}
+			} catch (error) {
+				// Ignore table extraction errors, continue with other methods
+				console.warn('Error extracting documents from table:', error)
+			}
+		}
+
 		// Extract data from each document link
 		for (let i = 0; i < documentLinks.length; i++) {
 			try {
@@ -128,7 +173,7 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 				if (!fileName) continue
 
 				// Try to extract file size (if available in data attributes or nearby text)
-				const fileSize = await this.extractFileSize(link, page)
+				const fileSize = await this.extractFileSize(link)
 
 				// Generate document ID
 				const id = this.generateDocumentId(absoluteUrl, fileName)
@@ -191,7 +236,7 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 	 * - Nearby text (e.g., "Document.pdf (2.5 MB)")
 	 * - Sibling elements
 	 */
-	private async extractFileSize(link: Locator, page: Page): Promise<number | null> {
+	private async extractFileSize(link: Locator): Promise<number | null> {
 		// Try data attribute first
 		const dataSize = await this.extractAttribute(link, 'data-file-size')
 		if (dataSize) {
@@ -273,6 +318,88 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 		}
 
 		return null
+	}
+
+	/**
+	 * Extract data from a table
+	 * 
+	 * Extracts structured data from HTML tables. Useful when documents are listed in table format.
+	 * Returns an array of objects where each object represents a row with column names as keys.
+	 */
+	protected async extractTable(
+		page: Page,
+		tableSelector: string
+	): Promise<Record<string, string>[]> {
+		try {
+			const table = page.locator(tableSelector).first()
+			const count = await table.count()
+			if (count === 0) return []
+
+			// Extract headers from <th> elements
+			const headers: string[] = []
+			const headerCells = table.locator('thead th, th, tr:first-child th, tr:first-child td')
+			const headerCount = await headerCells.count()
+
+			if (headerCount > 0) {
+				for (let i = 0; i < headerCount; i++) {
+					const headerText = await this.extractText(headerCells.nth(i))
+					if (headerText) {
+						headers.push(headerText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// If no headers found, try to infer from first row
+			if (headers.length === 0) {
+				const firstRow = table.locator('tr').first()
+				const firstRowCells = firstRow.locator('td, th')
+				const firstRowCount = await firstRowCells.count()
+				for (let i = 0; i < firstRowCount; i++) {
+					const cellText = await this.extractText(firstRowCells.nth(i))
+					if (cellText && cellText.trim().length > 0) {
+						headers.push(cellText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// Extract rows
+			const rows: Record<string, string>[] = []
+			const rowElements = table.locator('tbody tr, tr')
+			const rowCount = await rowElements.count()
+
+			// Start from row 1 if we used first row as headers, otherwise start from 0
+			const startRow = headers.length > 0 && headerCount > 0 ? 1 : 0
+
+			for (let i = startRow; i < rowCount; i++) {
+				const row = rowElements.nth(i)
+				const cells = row.locator('td, th')
+				const cellCount = await cells.count()
+
+				if (cellCount === 0) continue
+
+				const rowData: Record<string, string> = {}
+
+				for (let j = 0; j < cellCount; j++) {
+					const cellText = await this.extractText(cells.nth(j))
+					const header = headers[j] || `column_${j + 1}`
+					rowData[header] = cellText ? cellText.trim() : ''
+				}
+
+				// Only add row if it has at least one non-empty value
+				if (Object.values(rowData).some(val => val.length > 0)) {
+					rows.push(rowData)
+				}
+			}
+
+			return rows
+		} catch (error) {
+			console.warn(`Error extracting table with selector "${tableSelector}":`, error)
+			return []
+		}
 	}
 
 	/**

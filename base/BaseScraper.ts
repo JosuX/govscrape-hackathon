@@ -56,7 +56,7 @@ export abstract class BaseScraper {
 	 * 
 	 * @returns Object containing session directory and total items scraped
 	 * 
-	 * TODO: Implement the main scraping workflow
+	 *  Implement the main scraping workflow
 	 * - Launch browser using launchBrowser()
 	 * - Create session directory using createSessionDirectory()
 	 * - Implement pagination loop
@@ -66,7 +66,7 @@ export abstract class BaseScraper {
 	 * - Handle cleanup in finally block
 	 */
 	public async run(): Promise<{ sessionDir: string; itemsCount: number }> {
-		// TODO: Implement main scraping workflow
+		//  Implement main scraping workflow
 		throw new Error('Method not implemented')
 	}
 
@@ -81,7 +81,7 @@ export abstract class BaseScraper {
 	 * @param pageSize - Number of items per page
 	 * @returns Array of listing objects (raw data from the source)
 	 * 
-	 * TODO: Implement listing fetch logic
+	 *  Implement listing fetch logic
 	 * - Navigate to the search/listing page
 	 * - Apply date filters from config.dateRange
 	 * - Handle pagination (offset/limit or page numbers)
@@ -104,7 +104,7 @@ export abstract class BaseScraper {
 	 * @param listing - Basic listing info from fetchListings()
 	 * @returns Structured opportunity data with documents
 	 * 
-	 * TODO: Implement opportunity processing
+	 *  Implement opportunity processing
 	 * - Build detail page URL from listing data
 	 * - Create new page for isolation (browser.newPage())
 	 * - Navigate to detail page
@@ -127,7 +127,7 @@ export abstract class BaseScraper {
 	 * 
 	 * @param items - Array of processed opportunities
 	 * 
-	 * TODO: Implement batch saving
+	 *  Implement batch saving
 	 * - Create output object matching SOURCE_TO_INTAKE schema
 	 * - Include metadata (scrapedAt, source, etc.)
 	 * - Call saveBatchToFile() utility
@@ -143,7 +143,7 @@ export abstract class BaseScraper {
 	 * 
 	 * @returns Playwright Browser instance
 	 * 
-	 * TODO: Implement browser launch
+	 *  Implement browser launch
 	 * - Import chromium from playwright
 	 * - Launch with appropriate options (headless, args)
 	 * - Return browser instance
@@ -158,7 +158,7 @@ export abstract class BaseScraper {
 	 * 
 	 * Format: session_SOURCE_YYYY-MM-DD_TIMESTAMP
 	 * 
-	 * TODO: Implement directory creation
+	 *  Implement directory creation
 	 * - Generate unique directory name
 	 * - Store in this.sessionDirName
 	 * - Call createSessionDirectory() utility

@@ -25,7 +25,7 @@ export abstract class BaseExtractor<T> {
 	 * @param page - Playwright page instance
 	 * @returns Extracted data of type T
 	 * 
-	 * TODO: Implement extraction logic in your concrete extractor
+	 *  Implement extraction logic in your concrete extractor
 	 * - Wait for page to load
 	 * - Use locators to find elements
 	 * - Extract text, attributes, or other data
@@ -41,14 +41,14 @@ export abstract class BaseExtractor<T> {
 	 * @param locator - Playwright locator
 	 * @returns Extracted text or null if not found
 	 * 
-	 * TODO: Implement text extraction
+	 *  Implement text extraction
 	 * - Check if locator exists (count > 0)
 	 * - Get textContent
 	 * - Trim whitespace
 	 * - Return null if empty or not found
 	 */
 	protected async extractText(locator: Locator): Promise<string | null> {
-		// TODO: Implement text extraction
+		//  Implement text extraction
 		throw new Error('Method not implemented')
 	}
 
@@ -61,7 +61,7 @@ export abstract class BaseExtractor<T> {
 	 * @param attribute - Attribute name (e.g., 'href', 'data-id')
 	 * @returns Attribute value or null if not found
 	 * 
-	 * TODO: Implement attribute extraction
+	 *  Implement attribute extraction
 	 * - Check if locator exists
 	 * - Get attribute value
 	 * - Return null if not found
@@ -70,7 +70,7 @@ export abstract class BaseExtractor<T> {
 		locator: Locator,
 		attribute: string
 	): Promise<string | null> {
-		// TODO: Implement attribute extraction
+		//  Implement attribute extraction
 		throw new Error('Method not implemented')
 	}
 
@@ -83,7 +83,7 @@ export abstract class BaseExtractor<T> {
 	 * @param tableSelector - CSS selector for the table
 	 * @returns Array of row data objects
 	 * 
-	 * TODO: Implement table extraction
+	 *  Implement table extraction
 	 * - Locate the table
 	 * - Extract headers from <th> elements
 	 * - Iterate through <tr> rows
@@ -94,7 +94,7 @@ export abstract class BaseExtractor<T> {
 		page: Page,
 		tableSelector: string
 	): Promise<Record<string, string>[]> {
-		// TODO: Implement table extraction
+		//  Implement table extraction
 		throw new Error('Method not implemented')
 	}
 
@@ -108,7 +108,7 @@ export abstract class BaseExtractor<T> {
 	 * @param selectors - Array of CSS selectors to try
 	 * @returns Extracted text or null
 	 * 
-	 * TODO: Implement fallback selector logic
+	 *  Implement fallback selector logic
 	 * - Loop through selectors
 	 * - Try each one using extractText()
 	 * - Return first non-null result
@@ -118,7 +118,7 @@ export abstract class BaseExtractor<T> {
 		page: Page,
 		selectors: string[]
 	): Promise<string | null> {
-		// TODO: Implement fallback selector logic
+		//  Implement fallback selector logic
 		throw new Error('Method not implemented')
 	}
 
@@ -131,14 +131,14 @@ export abstract class BaseExtractor<T> {
 	 * @param tabSelector - CSS selector for the tab to click
 	 * @returns True if tab was clicked successfully
 	 * 
-	 * TODO: Implement tab clicking logic
+	 *  Implement tab clicking logic
 	 * - Check if tab exists
 	 * - Click the tab
 	 * - Wait for tab content to load
 	 * - Return success status
 	 */
 	protected async clickTab(page: Page, tabSelector: string): Promise<boolean> {
-		// TODO: Implement tab clicking logic
+		//  Implement tab clicking logic
 		throw new Error('Method not implemented')
 	}
 }

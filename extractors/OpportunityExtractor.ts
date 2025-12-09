@@ -146,23 +146,39 @@ export class OpportunityExtractor extends BaseExtractor<SOURCE_OPPORTUNITY> {
 		])
 
 		// Extract codes (UNSPSC, NAICS, NIGP)
-		const unspscCodes = await this.extractCodeArray(page, [
+		// Try direct selectors first, then fallback to table extraction
+		let unspscCodes = await this.extractCodeArray(page, [
 			'.unspsc-codes',
 			'[data-unspsc]',
 			'.unspsc',
 		])
+		
+		// If not found, try extracting from table
+		if (!unspscCodes || unspscCodes.length === 0) {
+			unspscCodes = await this.extractCodesFromTable(page, ['unspsc', 'unspsc code', 'unspsc codes'])
+		}
 
-		const naicsCodes = await this.extractCodeArray(page, [
+		let naicsCodes = await this.extractCodeArray(page, [
 			'.naics-codes',
 			'[data-naics]',
 			'.naics',
 		])
+		
+		// If not found, try extracting from table
+		if (!naicsCodes || naicsCodes.length === 0) {
+			naicsCodes = await this.extractCodesFromTable(page, ['naics', 'naics code', 'naics codes'])
+		}
 
-		const nigpCodes = await this.extractCodeArray(page, [
+		let nigpCodes = await this.extractCodeArray(page, [
 			'.nigp-codes',
 			'[data-nigp]',
 			'.nigp',
 		])
+		
+		// If not found, try extracting from table
+		if (!nigpCodes || nigpCodes.length === 0) {
+			nigpCodes = await this.extractCodesFromTable(page, ['nigp', 'nigp code', 'nigp codes'])
+		}
 
 		// Extract buyer/contact information
 		const buyerName = await this.extractFromMultipleSelectors(page, [
@@ -344,6 +360,58 @@ export class OpportunityExtractor extends BaseExtractor<SOURCE_OPPORTUNITY> {
 	}
 
 	/**
+	 * Extract codes from table by label
+	 */
+	private async extractCodesFromTable(
+		page: Page,
+		labels: string[]
+	): Promise<string[] | null> {
+		// Try common table selectors
+		const tableSelectors = [
+			'table',
+			'.data-table',
+			'.codes-table',
+			'[data-table]',
+			'.classification-table',
+		]
+
+		for (const tableSelector of tableSelectors) {
+			try {
+				const table = page.locator(tableSelector).first()
+				const count = await table.count()
+				if (count === 0) continue
+
+				const tableData = await this.extractTable(page, tableSelector)
+				
+				// Look for rows matching the labels
+				for (const row of tableData) {
+					for (const [key, value] of Object.entries(row)) {
+						const keyLower = key.toLowerCase()
+						for (const label of labels) {
+							if (keyLower.includes(label.toLowerCase())) {
+								// Extract codes from the value
+								if (value) {
+									const codes = value
+										.split(/[,;\n]/)
+										.map(code => code.trim())
+										.filter(code => code.length > 0)
+									if (codes.length > 0) {
+										return codes
+									}
+								}
+							}
+						}
+					}
+				}
+			} catch {
+				continue
+			}
+		}
+
+		return null
+	}
+
+	/**
 	 * Extract array of codes (UNSPSC, NAICS, NIGP)
 	 */
 	private async extractCodeArray(
@@ -379,6 +447,88 @@ export class OpportunityExtractor extends BaseExtractor<SOURCE_OPPORTUNITY> {
 			}
 		}
 		return null
+	}
+
+	/**
+	 * Extract data from a table
+	 * 
+	 * Extracts structured data from HTML tables by reading headers and rows.
+	 * Returns an array of objects where each object represents a row with column names as keys.
+	 */
+	protected async extractTable(
+		page: Page,
+		tableSelector: string
+	): Promise<Record<string, string>[]> {
+		try {
+			const table = page.locator(tableSelector).first()
+			const count = await table.count()
+			if (count === 0) return []
+
+			// Extract headers from <th> elements
+			const headers: string[] = []
+			const headerCells = table.locator('thead th, th, tr:first-child th, tr:first-child td')
+			const headerCount = await headerCells.count()
+
+			if (headerCount > 0) {
+				for (let i = 0; i < headerCount; i++) {
+					const headerText = await this.extractText(headerCells.nth(i))
+					if (headerText) {
+						headers.push(headerText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// If no headers found, try to infer from first row
+			if (headers.length === 0) {
+				const firstRow = table.locator('tr').first()
+				const firstRowCells = firstRow.locator('td, th')
+				const firstRowCount = await firstRowCells.count()
+				for (let i = 0; i < firstRowCount; i++) {
+					const cellText = await this.extractText(firstRowCells.nth(i))
+					if (cellText && cellText.trim().length > 0) {
+						headers.push(cellText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// Extract rows
+			const rows: Record<string, string>[] = []
+			const rowElements = table.locator('tbody tr, tr')
+			const rowCount = await rowElements.count()
+
+			// Start from row 1 if we used first row as headers, otherwise start from 0
+			const startRow = headers.length > 0 && headerCount > 0 ? 1 : 0
+
+			for (let i = startRow; i < rowCount; i++) {
+				const row = rowElements.nth(i)
+				const cells = row.locator('td, th')
+				const cellCount = await cells.count()
+
+				if (cellCount === 0) continue
+
+				const rowData: Record<string, string> = {}
+
+				for (let j = 0; j < cellCount; j++) {
+					const cellText = await this.extractText(cells.nth(j))
+					const header = headers[j] || `column_${j + 1}`
+					rowData[header] = cellText ? cellText.trim() : ''
+				}
+
+				// Only add row if it has at least one non-empty value
+				if (Object.values(rowData).some(val => val.length > 0)) {
+					rows.push(rowData)
+				}
+			}
+
+			return rows
+		} catch (error) {
+			console.warn(`Error extracting table with selector "${tableSelector}":`, error)
+			return []
+		}
 	}
 
 	/**

@@ -34,7 +34,7 @@ export abstract class ContractTransformer {
 	 * @param source - Source name (e.g., 'georgia', 'texas')
 	 * @returns Normalized contract data matching INTAKE_CONTRACT schema
 	 * 
-	 * TODO: Implement transformation logic
+	 *  Implement transformation logic
 	 * - Map all required fields from source to intake schema
 	 * - Normalize dates using parseDate()
 	 * - Generate unique ID using generateContractId()
@@ -50,14 +50,14 @@ export abstract class ContractTransformer {
 	 * @param dateStr - Raw date string from source
 	 * @returns ISO formatted date string or null
 	 * 
-	 * TODO: Implement date parsing
+	 *  Implement date parsing
 	 * - Handle various date formats
 	 * - Parse to Date object
 	 * - Return ISO string
 	 * - Return null for invalid dates
 	 */
 	protected parseDate(dateStr: string | null): string | null {
-		// TODO: Implement date parsing
+		//  Implement date parsing
 		throw new Error('Method not implemented')
 	}
 
@@ -68,13 +68,13 @@ export abstract class ContractTransformer {
 	 * @param source - Source name
 	 * @returns Unique contract ID
 	 * 
-	 * TODO: Implement ID generation
+	 *  Implement ID generation
 	 * - Create deterministic ID from eventId and source
 	 * - Ensure uniqueness
 	 * - Use consistent format
 	 */
 	protected generateContractId(eventId: string, source: string): string {
-		// TODO: Implement ID generation
+		//  Implement ID generation
 		throw new Error('Method not implemented')
 	}
 }
@@ -98,7 +98,7 @@ export abstract class AgencyTransformer {
 	 * @param source - Source name
 	 * @returns Normalized agency data matching INTAKE_AGENCY schema
 	 * 
-	 * TODO: Implement transformation logic
+	 *  Implement transformation logic
 	 * - Extract agency fields from opportunity
 	 * - Generate unique agency ID
 	 * - Normalize agency name
@@ -114,13 +114,13 @@ export abstract class AgencyTransformer {
 	 * @param source - Source name
 	 * @returns Unique agency ID
 	 * 
-	 * TODO: Implement ID generation
+	 *  Implement ID generation
 	 * - Create deterministic ID from agencyCode and source
 	 * - Handle missing agency codes
 	 * - Ensure uniqueness
 	 */
 	protected generateAgencyId(agencyCode: string, source: string): string {
-		// TODO: Implement ID generation
+		//  Implement ID generation
 		throw new Error('Method not implemented')
 	}
 }
@@ -145,7 +145,7 @@ export abstract class DocumentTransformer {
 	 * @param source - Source name
 	 * @returns Normalized document data matching INTAKE_DOCUMENT schema
 	 * 
-	 * TODO: Implement transformation logic
+	 *  Implement transformation logic
 	 * - Map document fields
 	 * - Generate unique document ID
 	 * - Extract file extension/type
@@ -161,14 +161,14 @@ export abstract class DocumentTransformer {
 	 * @param fileName - File name with extension
 	 * @returns File extension (lowercase, without dot)
 	 * 
-	 * TODO: Implement extension extraction
+	 *  Implement extension extraction
 	 * - Parse file name
 	 * - Extract extension
 	 * - Return lowercase without dot
 	 * - Return 'unknown' if no extension
 	 */
 	protected extractFileExtension(fileName: string): string {
-		// TODO: Implement extension extraction
+		//  Implement extension extraction
 		throw new Error('Method not implemented')
 	}
 
@@ -179,12 +179,12 @@ export abstract class DocumentTransformer {
 	 * @param source - Source name
 	 * @returns Unique document ID
 	 * 
-	 * TODO: Implement ID generation
+	 *  Implement ID generation
 	 * - Create deterministic ID from URL/attachmentId and source
 	 * - Ensure uniqueness
 	 */
 	protected generateDocumentId(documentUrl: string, source: string): string {
-		// TODO: Implement ID generation
+		//  Implement ID generation
 		throw new Error('Method not implemented')
 	}
 }
@@ -209,7 +209,7 @@ export abstract class PeopleTransformer {
 	 * @param source - Source name
 	 * @returns Normalized people data matching INTAKE_PEOPLE schema or null
 	 * 
-	 * TODO: Implement transformation logic
+	 *  Implement transformation logic
 	 * - Extract contact/buyer information
 	 * - Generate unique person ID
 	 * - Normalize name (parse first/last if needed)
@@ -225,13 +225,13 @@ export abstract class PeopleTransformer {
 	 * @param phone - Raw phone number string
 	 * @returns Normalized phone number
 	 * 
-	 * TODO: Implement phone normalization
+	 *  Implement phone normalization
 	 * - Remove formatting characters
 	 * - Standardize format
 	 * - Return null for invalid phones
 	 */
 	protected normalizePhone(phone: string | null): string | null {
-		// TODO: Implement phone normalization
+		//  Implement phone normalization
 		throw new Error('Method not implemented')
 	}
 
@@ -241,14 +241,14 @@ export abstract class PeopleTransformer {
 	 * @param email - Raw email string
 	 * @returns Normalized email (lowercase)
 	 * 
-	 * TODO: Implement email normalization
+	 *  Implement email normalization
 	 * - Convert to lowercase
 	 * - Trim whitespace
 	 * - Validate format (basic check)
 	 * - Return null for invalid emails
 	 */
 	protected normalizeEmail(email: string | null): string | null {
-		// TODO: Implement email normalization
+		//  Implement email normalization
 		throw new Error('Method not implemented')
 	}
 
@@ -259,13 +259,13 @@ export abstract class PeopleTransformer {
 	 * @param source - Source name
 	 * @returns Unique person ID
 	 * 
-	 * TODO: Implement ID generation
+	 *  Implement ID generation
 	 * - Create deterministic ID from email and source
 	 * - Handle missing emails
 	 * - Ensure uniqueness
 	 */
 	protected generatePersonId(email: string, source: string): string {
-		// TODO: Implement ID generation
+		//  Implement ID generation
 		throw new Error('Method not implemented')
 	}
 }

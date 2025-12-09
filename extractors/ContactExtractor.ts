@@ -142,16 +142,133 @@ export class ContactExtractor extends BaseExtractor<ContactData> {
 	}
 
 	/**
+	 * Extract data from a table
+	 * 
+	 * Extracts structured data from HTML tables by reading headers and rows.
+	 * Returns an array of objects where each object represents a row with column names as keys.
+	 */
+	protected async extractTable(
+		page: Page,
+		tableSelector: string
+	): Promise<Record<string, string>[]> {
+		try {
+			const table = page.locator(tableSelector).first()
+			const count = await table.count()
+			if (count === 0) return []
+
+			// Extract headers from <th> elements
+			const headers: string[] = []
+			const headerCells = table.locator('thead th, th, tr:first-child th, tr:first-child td')
+			const headerCount = await headerCells.count()
+
+			if (headerCount > 0) {
+				for (let i = 0; i < headerCount; i++) {
+					const headerText = await this.extractText(headerCells.nth(i))
+					if (headerText) {
+						headers.push(headerText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// If no headers found, try to infer from first row
+			if (headers.length === 0) {
+				const firstRow = table.locator('tr').first()
+				const firstRowCells = firstRow.locator('td, th')
+				const firstRowCount = await firstRowCells.count()
+				for (let i = 0; i < firstRowCount; i++) {
+					const cellText = await this.extractText(firstRowCells.nth(i))
+					if (cellText && cellText.trim().length > 0) {
+						headers.push(cellText.trim().toLowerCase().replace(/\s+/g, '_'))
+					} else {
+						headers.push(`column_${i + 1}`)
+					}
+				}
+			}
+
+			// Extract rows
+			const rows: Record<string, string>[] = []
+			const rowElements = table.locator('tbody tr, tr')
+			const rowCount = await rowElements.count()
+
+			// Start from row 1 if we used first row as headers, otherwise start from 0
+			const startRow = headers.length > 0 && headerCount > 0 ? 1 : 0
+
+			for (let i = startRow; i < rowCount; i++) {
+				const row = rowElements.nth(i)
+				const cells = row.locator('td, th')
+				const cellCount = await cells.count()
+
+				if (cellCount === 0) continue
+
+				const rowData: Record<string, string> = {}
+
+				for (let j = 0; j < cellCount; j++) {
+					const cellText = await this.extractText(cells.nth(j))
+					const header = headers[j] || `column_${j + 1}`
+					rowData[header] = cellText ? cellText.trim() : ''
+				}
+
+				// Only add row if it has at least one non-empty value
+				if (Object.values(rowData).some(val => val.length > 0)) {
+					rows.push(rowData)
+				}
+			}
+
+			return rows
+		} catch (error) {
+			console.warn(`Error extracting table with selector "${tableSelector}":`, error)
+			return []
+		}
+	}
+
+	/**
 	 * Extract value from HTML table by label
 	 * 
-	 * Looks for a table row with matching label and returns the value
+	 * Looks for a table row with matching label and returns the value.
+	 * Uses extractTable() internally for better table parsing when context is a Page.
 	 */
 	private async extractFromTable(
 		context: Page | Locator,
 		labels: string[]
 	): Promise<string | null> {
 		try {
-			// Find all table rows
+			// Try using extractTable if context is a Page (check by checking for 'url' method)
+			const isPage = 'url' in context && typeof (context as any).url === 'function'
+			
+			if (isPage) {
+				// Find tables in the context
+				const tableSelectors = ['table', '.data-table', '.contact-table', '[data-table]']
+				const pageContext = context as Page
+				
+				for (const tableSelector of tableSelectors) {
+					try {
+						const table = pageContext.locator(tableSelector).first()
+						const count = await table.count()
+						if (count === 0) continue
+
+						// Use extractTable if context is Page
+						const tableData = await this.extractTable(pageContext, tableSelector)
+						
+						// Look for rows matching the labels
+						for (const row of tableData) {
+							for (const [key, value] of Object.entries(row)) {
+								const keyLower = key.toLowerCase()
+								for (const label of labels) {
+									if (keyLower.includes(label.toLowerCase()) && value) {
+										return value.trim()
+									}
+								}
+							}
+						}
+					} catch {
+						continue
+					}
+				}
+			}
+
+			// Fallback: Find all table rows
 			const rows = context.locator('tr, .table-row, [data-row]')
 			const rowCount = await rows.count()
 
