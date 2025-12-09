@@ -24,10 +24,8 @@ import { z } from 'zod'
  * Example fields to include:
  * - id: string (generated)
  * - fileName: string (e.g., "RFP_Document.pdf")
- * - attachmentId: string (from source, if available)
  * - downloadUrl: string (local file path or URL after download)
- * - fileSize: number (in bytes)
- * - createdAt: string (ISO timestamp)
+ * - fileSize: number (in bytes, optional)
  * - contractId: string (link to parent opportunity)
  *
  * Add any source-specific fields you need.
