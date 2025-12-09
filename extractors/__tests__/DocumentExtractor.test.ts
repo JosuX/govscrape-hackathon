@@ -50,17 +50,45 @@ describe('DocumentExtractor', () => {
 		})
 
 		it('should handle documents in containers', async () => {
+			// Create a mock link that will be returned
+			const mockLink: any = {
+				textContent: jest.fn<() => Promise<string | null>>().mockResolvedValue('document.pdf'),
+				getAttribute: jest.fn<() => Promise<string | null>>().mockResolvedValue('https://example.com/doc.pdf'),
+				count: jest.fn<() => Promise<number>>().mockResolvedValue(1),
+				all: jest.fn<() => Promise<Locator[]>>().mockResolvedValue([]),
+			}
+
+			// Mock container that returns links when locator is called
 			const mockContainer: any = {
-				locator: jest.fn().mockReturnValue(mockLocator),
+				locator: jest.fn().mockReturnValue({
+					count: jest.fn<() => Promise<number>>().mockResolvedValue(1),
+					all: jest.fn<() => Promise<Locator[]>>().mockResolvedValue([mockLink]),
+				}),
 				count: jest.fn<() => Promise<number>>().mockResolvedValue(1),
 			}
 
-			mockPage.locator.mockReturnValue(mockContainer)
-			mockLocator.all.mockResolvedValue([mockLocator])
+			// Mock page.locator to return container for container selectors, and return links for document selectors
+			mockPage.locator.mockImplementation((selector: string) => {
+				// If it's a container selector, return the container
+				if (selector.includes('.documents') || selector.includes('.attachments') || 
+				    selector.includes('.files') || selector.includes('[data-documents]') || 
+				    selector.includes('.document-list')) {
+					return mockContainer
+				}
+				// Otherwise return a locator that finds nothing (count = 0)
+				return {
+					count: jest.fn<() => Promise<number>>().mockResolvedValue(0),
+					all: jest.fn<() => Promise<Locator[]>>().mockResolvedValue([]),
+				} as any
+			})
 
 			const result = await extractor.extract(mockPage)
 
 			expect(Array.isArray(result)).toBe(true)
+			if (result.length > 0) {
+				expect(result[0]).toHaveProperty('fileName')
+				expect(result[0]).toHaveProperty('downloadUrl')
+			}
 		})
 
 		it('should extract file name from link text', async () => {
