@@ -79,6 +79,7 @@ class YourStateScraper extends BaseScraper {
 	private oppExtractor: OpportunityExtractor
 	private contactExtractor: ContactExtractor
 	private websiteConfig: WebsiteConfig
+	private shouldStopPagination: boolean = false
 
 	constructor(config: ScraperConfig) {
 		super(config)
@@ -113,8 +114,11 @@ class YourStateScraper extends BaseScraper {
 		page: Page,
 		pageNumber: number,
 		pageSize: number
-	): Promise<{ listings: Listing[]; shouldStopPagination: boolean }> {
+	): Promise<Listing[]> {
 		try {
+			// Reset pagination stop flag at the start of each page
+			this.shouldStopPagination = false
+			
 			// Build URL for Cherokee Bids pagination
 			// Cherokee Bids uses /Index/Size/{pageSize}/Page/{pageNumber} format
 			let url = this.websiteConfig.searchUrl
@@ -194,14 +198,13 @@ class YourStateScraper extends BaseScraper {
 			
 			if (listingElements.length === 0) {
 				log('scraper', 'No listings found on page', 'warn')
-				return { listings: [], shouldStopPagination: false }
+				return []
 			}
 			
 			log('scraper', `Found ${listingElements.length} listings on page ${pageNumber}`, 'info')
 			
 			// Extract data from each listing
 			const listings: Listing[] = []
-			let shouldStopPagination = false // Flag to stop if we've passed the date range
 			
 			for (let i = 0; i < listingElements.length; i++) {
 				try {
@@ -329,7 +332,7 @@ class YourStateScraper extends BaseScraper {
 								// a listing that's before our date range, we can stop pagination
 								// All subsequent listings will also be before the date range
 								if (listingDate < fromDate) {
-									shouldStopPagination = true
+									this.shouldStopPagination = true
 									log('scraper', `Stopping pagination: found listing ${id} with date ${openDateStr} (${listingDate.toISOString().split('T')[0]}) before date range ${fromDate.toISOString().split('T')[0]}`, 'info')
 									break // Stop processing this page, we've gone past the date range
 								}
@@ -360,7 +363,7 @@ class YourStateScraper extends BaseScraper {
 					}
 					
 					// If we should stop pagination, break out of the loop
-					if (shouldStopPagination) {
+					if (this.shouldStopPagination) {
 						break
 					}
 				} catch (error) {
@@ -369,10 +372,10 @@ class YourStateScraper extends BaseScraper {
 				}
 			}
 			
-			return { listings, shouldStopPagination }
+			return listings
 		} catch (error) {
 			log('scraper', `Error fetching listings: ${error}`, 'error')
-			return { listings: [], shouldStopPagination: false }
+			return []
 		}
 	}
 
@@ -568,19 +571,16 @@ class YourStateScraper extends BaseScraper {
 					log('scraper', `Processing page ${this.currentPage}...`, 'info')
 
 					// Fetch listings for current page
-					const result = await this.fetchListings(
+					const listings = await this.fetchListings(
 						mainPage,
 						this.currentPage,
 						this.config.batchSize || 50
 					)
-					
-					const listings = result.listings || []
-					const shouldStopPagination = result.shouldStopPagination || false
 
 					if (listings.length === 0) {
 						log('scraper', 'No more listings found on this page', 'info')
 						// If we should stop pagination (past date range) or no listings, stop
-						if (shouldStopPagination) {
+						if (this.shouldStopPagination) {
 							log('scraper', 'Stopping pagination: reached listings past date range', 'info')
 							hasMorePages = false
 							break
@@ -612,7 +612,7 @@ class YourStateScraper extends BaseScraper {
 					}
 
 					// Check if we should stop pagination (found listings before date range)
-					if (shouldStopPagination) {
+					if (this.shouldStopPagination) {
 						log('scraper', 'Stopping pagination: reached listings before date range', 'info')
 						hasMorePages = false
 						break
@@ -669,7 +669,6 @@ async function main() {
 		}
 
 		log('scraper', 'Starting scraper...', 'info')
-		log('scraper', `Date range: ${dateRange.from.toISOString()} to ${dateRange.to.toISOString()}`, 'info')
 
 		// Create and run scraper
 		const scraper = new YourStateScraper(config)
