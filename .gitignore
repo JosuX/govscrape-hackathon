@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Output directories
+output/
+*.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary files
+*.tmp
+
