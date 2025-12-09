@@ -4,21 +4,12 @@ import { BaseExtractor } from '../base/BaseExtractor'
 /**
  * ContactExtractor
  * 
- * Extracts contact/buyer information from complex contact sections.
- * 
- * Use this extractor when contact information is:
- * - In a separate section or modal
- * - In a structured table format
- * - Split across multiple contacts
- * - Requires special parsing logic
+ * Extracts contact/buyer information from Cherokee Bids detail pages.
  * 
  * Returns contact data that can be merged into SOURCE_OPPORTUNITY:
  * - buyerName: string
  * - buyerEmail: string | null
  * - buyerPhone: string | null
- * 
- * If contact info is simple and on the main page, you can extract it
- * directly in OpportunityExtractor instead.
  */
 export interface ContactData {
 	buyerName: string
@@ -28,13 +19,7 @@ export interface ContactData {
 
 export class ContactExtractor extends BaseExtractor<ContactData> {
 	/**
-	 * Extract contact information from the page
-	 * 
-	 * TODO: Customize selectors based on your target website structure
-	 * - Update CSS selectors to match your website's contact section
-	 * - Adjust extraction logic for table-based contact info
-	 * - Handle multiple contacts if needed (returns primary contact)
-	 * - Add logic to click modals or expand sections if required
+	 * Extract contact information from Cherokee Bids detail page
 	 */
 	public async extract(page: Page): Promise<ContactData> {
 		// Wait for page to load

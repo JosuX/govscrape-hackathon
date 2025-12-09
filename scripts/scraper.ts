@@ -18,7 +18,7 @@
  * 6. Output session directory location
  */
 
-import { chromium, Browser, Page } from 'playwright'
+import { chromium, Browser, Page, Locator } from 'playwright'
 import { BaseScraper, ScraperConfig } from '../base/BaseScraper'
 import { getDateRange } from '../utils/cli'
 import { 
@@ -29,7 +29,7 @@ import {
 } from '../utils/storage'
 import { log, parseFlexibleDate } from '../utils/helpers'
 import { SOURCE_TO_INTAKE, type SOURCE_OPPORTUNITY, type SOURCE_DOCUMENT } from '../schemas/source.schema'
-import { OpportunityExtractor, DocumentExtractor, ContactExtractor, TabDataExtractor } from '../extractors'
+import { OpportunityExtractor, DocumentExtractor, ContactExtractor } from '../extractors'
 
 /**
  * Listing interface for paginated opportunity listings
@@ -55,9 +55,6 @@ interface BatchItem {
  */
 export enum Source {
 	CHEROKEE = 'cherokee',
-	CALEPROCURE = 'caleprocure',
-	TEXAS = 'texas',
-	NYSCR = 'nyscr',
 }
 
 /**
@@ -70,87 +67,41 @@ interface WebsiteConfig {
 	titleSelector: string
 	linkSelector: string
 	idSelector: string
-	dateFilterSelector?: string
-	paginationType: 'url' | 'button' | 'api'
 	requiresAuth: boolean
 }
 
 /**
  * YourStateScraper
  * 
- * Concrete implementation of BaseScraper for your target website.
- * 
- * Supports multiple websites:
- * - Cherokee Bids (primary target)
- * - Cal eProcure
- * - Texas Comptroller
- * - NYSCR
+ * Concrete implementation of BaseScraper for Cherokee Bids website.
  */
 class YourStateScraper extends BaseScraper {
 	private oppExtractor: OpportunityExtractor
 	private contactExtractor: ContactExtractor
-	private tabExtractor: TabDataExtractor
 	private websiteConfig: WebsiteConfig
 
 	constructor(config: ScraperConfig) {
 		super(config)
 		this.oppExtractor = new OpportunityExtractor()
 		this.contactExtractor = new ContactExtractor()
-		this.tabExtractor = new TabDataExtractor()
 		
 		// Configure website-specific settings
-		this.websiteConfig = this.getWebsiteConfig(config.source)
+		this.websiteConfig = this.getWebsiteConfig()
 	}
 
 	/**
-	 * Get website configuration based on source name
+	 * Get website configuration for Cherokee Bids
 	 */
-	private getWebsiteConfig(source: string): WebsiteConfig {
-		const configs: Record<Source, WebsiteConfig> = {
-			[Source.CHEROKEE]: {
-				baseUrl: 'https://www.cherokeebids.org',
-				searchUrl: 'https://www.cherokeebids.org/WebsiteAdmin/Procurement',
-				listingSelector: 'table tbody tr, .table tbody tr, #procurementTable tbody tr, table.procurement-table tbody tr',
-				titleSelector: 'td:nth-child(2), .title, a',
-				linkSelector: 'td:nth-child(2) a, td a[href*="Procurement"], td a[href*="procurement"]',
-				idSelector: 'td:first-child, td:nth-child(1)',
-				paginationType: 'url',
-				requiresAuth: false,
-			},
-			[Source.CALEPROCURE]: {
-				baseUrl: 'https://caleprocure.ca.gov',
-				searchUrl: 'https://caleprocure.ca.gov/pages/index.aspx',
-				listingSelector: '.opportunity-list-item, .bid-item, table tbody tr',
-				titleSelector: '.title, h3, .bid-title, td:nth-child(2)',
-				linkSelector: 'a[href*="opportunity"], a[href*="bid"], a[href*="contract"]',
-				idSelector: '[data-id], .id, .opportunity-id, td:first-child',
-				paginationType: 'button',
-				requiresAuth: false,
-			},
-			[Source.TEXAS]: {
-				baseUrl: 'https://comptroller.texas.gov',
-				searchUrl: 'https://comptroller.texas.gov/purchasing/',
-				listingSelector: '.procurement-item, .opportunity-card, table tbody tr',
-				titleSelector: '.title, h3, .procurement-title, td:nth-child(2)',
-				linkSelector: 'a[href*="purchasing"], a[href*="opportunity"], a[href*="bid"]',
-				idSelector: '[data-id], .id, .opportunity-id, td:first-child',
-				paginationType: 'url',
-				requiresAuth: false,
-			},
-			[Source.NYSCR]: {
-				baseUrl: 'https://www.nyscr.ny.gov',
-				searchUrl: 'https://www.nyscr.ny.gov/adsOpen.cfm',
-				listingSelector: '.contract-item, .opportunity-row, table tbody tr',
-				titleSelector: '.title, h3, .contract-title, td:nth-child(2)',
-				linkSelector: 'a[href*="contract"], a[href*="opportunity"], a[href*="bid"]',
-				idSelector: '[data-id], .id, .contract-id, td:first-child',
-				paginationType: 'url',
-				requiresAuth: false,
-			},
+	private getWebsiteConfig(): WebsiteConfig {
+		return {
+			baseUrl: 'https://www.cherokeebids.org',
+			searchUrl: 'https://www.cherokeebids.org/WebsiteAdmin/Procurement',
+			listingSelector: 'table tbody tr, .table tbody tr, #procurementTable tbody tr, table.procurement-table tbody tr',
+			titleSelector: 'td:nth-child(2), .title, a',
+			linkSelector: 'td:nth-child(2) a, td a[href*="Procurement"], td a[href*="procurement"]',
+			idSelector: 'td:first-child, td:nth-child(1)',
+			requiresAuth: false,
 		}
-
-		const sourceKey = source.toLowerCase() as Source
-		return configs[sourceKey] || configs[Source.CHEROKEE]
 	}
 
 	/**
@@ -162,36 +113,34 @@ class YourStateScraper extends BaseScraper {
 		page: Page,
 		pageNumber: number,
 		pageSize: number
-	): Promise<any> {
+	): Promise<{ listings: Listing[]; shouldStopPagination: boolean }> {
 		try {
-			// Build URL based on pagination type
+			// Build URL for Cherokee Bids pagination
+			// Cherokee Bids uses /Index/Size/{pageSize}/Page/{pageNumber} format
 			let url = this.websiteConfig.searchUrl
 			
-			if (this.websiteConfig.paginationType === 'url') {
-				// Cherokee Bids uses /Index/Size/{pageSize}/Page/{pageNumber} format
-				// Check if URL already has /Index/ pattern
-				if (url.includes('/Index/')) {
-					// Replace existing pagination in URL
-					url = url.replace(/\/Index\/Size\/\d+\/Page\/\d+/, `/Index/Size/${pageSize}/Page/${pageNumber}`)
-					if (!url.includes('/Index/')) {
-						// If replacement didn't work, append
-						url = `${url}/Index/Size/${pageSize}/Page/${pageNumber}`
-					}
-				} else {
-					// Add pagination path
+			// Check if URL already has /Index/ pattern
+			if (url.includes('/Index/')) {
+				// Replace existing pagination in URL
+				url = url.replace(/\/Index\/Size\/\d+\/Page\/\d+/, `/Index/Size/${pageSize}/Page/${pageNumber}`)
+				if (!url.includes('/Index/')) {
+					// If replacement didn't work, append
 					url = `${url}/Index/Size/${pageSize}/Page/${pageNumber}`
 				}
-				
-				// Add sorting/filtering query parameters (sorted by opendate descending)
-				const queryParams = new URLSearchParams()
-				queryParams.set('field', 'opendate')
-				queryParams.set('isDesc', 'desc')
-				queryParams.set('switchSort', 'True')
-				
-				// Append query parameters
-				const separator = url.includes('?') ? '&' : '?'
-				url = `${url}${separator}${queryParams.toString()}`
+			} else {
+				// Add pagination path
+				url = `${url}/Index/Size/${pageSize}/Page/${pageNumber}`
 			}
+			
+			// Add sorting/filtering query parameters (sorted by opendate descending)
+			const queryParams = new URLSearchParams()
+			queryParams.set('field', 'opendate')
+			queryParams.set('isDesc', 'desc')
+			queryParams.set('switchSort', 'True')
+			
+			// Append query parameters
+			const separator = url.includes('?') ? '&' : '?'
+			url = `${url}${separator}${queryParams.toString()}`
 			
 			log('scraper', `Fetching page ${pageNumber} from ${url}`, 'info')
 			
@@ -208,7 +157,7 @@ class YourStateScraper extends BaseScraper {
 				'table tr',
 			]
 			
-			let listingElements: any[] = []
+			let listingElements: Locator[] = []
 			for (const selector of tableSelectors) {
 				try {
 					await page.waitForSelector(selector, { timeout: 5000 })
@@ -445,21 +394,6 @@ class YourStateScraper extends BaseScraper {
 			// Navigate to detail page
 			await detailPage.goto(listing.link, { waitUntil: 'networkidle', timeout: 30000 })
 			await this.delay(1000) // Be polite
-			
-			// Check if page uses tabs - extract tab data if available
-			let tabData: Record<string, string | null> | null = null
-			try {
-				// Try to detect if page has tabs
-				const hasTabs = await detailPage.locator('.tab, .nav-tab, [role="tab"], .tab-button').count() > 0
-				if (hasTabs) {
-					log('scraper', 'Detected tabbed interface, extracting tab data...', 'info')
-					tabData = await this.tabExtractor.extract(detailPage)
-					log('scraper', `Extracted data from ${Object.keys(tabData).length} tabs`, 'info')
-				}
-			} catch (error) {
-				log('scraper', `Error extracting tab data: ${error}`, 'warn')
-				// Continue without tab data
-			}
 
 			// Extract opportunity data using OpportunityExtractor
 			const opportunity = await this.oppExtractor.extract(detailPage)
@@ -483,30 +417,23 @@ class YourStateScraper extends BaseScraper {
 			}
 			
 			// Extract documents using DocumentExtractor
-			// If tabs were found, documents might be in a "Documents" tab
 			// DocumentExtractor will search the entire page, including tab content
 			const docExtractor = new DocumentExtractor(opportunity.id)
 			let documents = await docExtractor.extract(detailPage)
 			
-			// If no documents found and we have tab data, try extracting from "Documents" tab
-			if (documents.length === 0 && tabData) {
-				const documentsTabContent = tabData['documents'] || tabData['attachments'] || tabData['files']
-				if (documentsTabContent) {
-					log('scraper', 'No documents found on main page, checking Documents tab...', 'info')
-					// Documents might be in tab content - DocumentExtractor should handle this
-					// But we can try extracting again after ensuring Documents tab is active
-					try {
-						// Try clicking Documents tab if it exists
-						const documentsTab = detailPage.locator('.tab, [role="tab"]').filter({ hasText: /document|attachment|file/i })
-						const tabCount = await documentsTab.count()
-						if (tabCount > 0) {
-							await documentsTab.first().click()
-							await this.delay(500) // Wait for tab content to load
-							documents = await docExtractor.extract(detailPage)
-						}
-					} catch (error) {
-						log('scraper', `Error extracting documents from tab: ${error}`, 'warn')
+			// If no documents found, try clicking Documents tab if it exists
+			if (documents.length === 0) {
+				try {
+					const documentsTab = detailPage.locator('.tab, .nav-tab, [role="tab"], .tab-button').filter({ hasText: /document|attachment|file/i })
+					const tabCount = await documentsTab.count()
+					if (tabCount > 0) {
+						log('scraper', 'No documents found on main page, checking Documents tab...', 'info')
+						await documentsTab.first().click()
+						await this.delay(500) // Wait for tab content to load
+						documents = await docExtractor.extract(detailPage)
 					}
+				} catch (error) {
+					log('scraper', `Error extracting documents from tab: ${error}`, 'warn')
 				}
 			}
 			
@@ -735,7 +662,7 @@ async function main() {
 
 		// Create scraper config
 		const config: ScraperConfig = {
-			source: Source.CHEROKEE, // Change to your source name (options: Source.CHEROKEE, Source.CALEPROCURE, Source.TEXAS, Source.NYSCR)
+			source: Source.CHEROKEE,
 			dateRange: dateRange,
 			batchSize: 50, // Number of items per page
 			maxPages: 10, // Maximum pages to scrape (for testing)

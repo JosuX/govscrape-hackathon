@@ -64,12 +64,10 @@ describe('OpportunityExtractor', () => {
 		it('should extract agency information', async () => {
 			mockLocator.textContent
 				.mockResolvedValueOnce('Department of Transportation') // entity
-				.mockResolvedValueOnce('DOT-001') // agencyNumber
 
 			const result = await extractor.extract(mockPage)
 
 			expect(result.entity).toBeTruthy()
-			expect(result.agencyNumber).toBeTruthy()
 		})
 
 		it('should extract contact information', async () => {

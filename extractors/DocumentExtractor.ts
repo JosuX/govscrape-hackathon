@@ -5,7 +5,7 @@ import type { SOURCE_DOCUMENT } from '../schemas/source.schema'
 /**
  * DocumentExtractor
  * 
- * Extracts document/attachment metadata from detail pages.
+ * Extracts document/attachment metadata from Cherokee Bids detail pages.
  * 
  * This extractor handles all fields defined in SOURCE_DOCUMENT schema:
  * - id: Generated document ID
@@ -23,12 +23,7 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 	}
 
 	/**
-	 * Extract document data from the page
-	 * 
-	 * TODO: Customize selectors based on your target website structure
-	 * - Update CSS selectors to match your website's document links
-	 * - Adjust extraction logic for different document presentation styles
-	 * - Handle cases where documents are in tabs, modals, or separate sections
+	 * Extract document data from Cherokee Bids detail page
 	 */
 	public async extract(page: Page): Promise<SOURCE_DOCUMENT[]> {
 		// Wait for page to load
@@ -190,7 +185,12 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 				}
 
 				// Try to extract file size (if available in data attributes or nearby text)
-				const fileSize = await this.extractFileSize(link)
+				let fileSize = await this.extractFileSize(link)
+				
+				// If not found in HTML, try fetching from HTTP headers
+				if (!fileSize) {
+					fileSize = await this.fetchFileSizeFromUrl(absoluteUrl)
+				}
 
 				// Generate document ID
 				const id = this.generateDocumentId(absoluteUrl, fileName)
@@ -332,6 +332,37 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 				const size = this.parseFileSize(match[1])
 				if (size !== null) return size
 			}
+		}
+
+		return null
+	}
+
+	/**
+	 * Fetch file size from HTTP headers
+	 * 
+	 * Makes a HEAD request to get the Content-Length header
+	 */
+	private async fetchFileSizeFromUrl(url: string): Promise<number | null> {
+		try {
+			const response = await fetch(url, {
+				method: 'HEAD',
+				headers: {
+					'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+				},
+			})
+
+			if (response.ok) {
+				const contentLength = response.headers.get('content-length')
+				if (contentLength) {
+					const size = parseInt(contentLength, 10)
+					if (!isNaN(size) && size > 0) {
+						return size
+					}
+				}
+			}
+		} catch (error) {
+			// Ignore errors - file size is optional
+			console.warn(`Failed to fetch file size from ${url}:`, error)
 		}
 
 		return null

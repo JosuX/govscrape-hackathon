@@ -53,20 +53,13 @@ class YourStateContractTransformer extends ContractTransformer {
 		
 		// Generate contract ID
 		const contractId = this.generateContractId(opportunity.eventId, source)
-		
-		// Generate agency ID if agency number exists
-		const agencyId = opportunity.agencyNumber 
-			? this.generateAgencyId(opportunity.agencyNumber, source)
-			: null
 
 		// Parse dates
 		const publishedAt = this.parseDate(opportunity.openDate) || new Date().toISOString()
 		const closingAt = this.parseDate(opportunity.closeDate) || new Date().toISOString()
 
 		// Get scrapedAt from opportunity if available, otherwise use current time
-		const scrapedAt = opportunity.createdAt 
-			? this.parseDate(opportunity.createdAt) || new Date().toISOString()
-			: new Date().toISOString()
+		const scrapedAt = new Date().toISOString()
 
 		return {
 			id: contractId,
@@ -74,23 +67,12 @@ class YourStateContractTransformer extends ContractTransformer {
 			source: source,
 			title: opportunity.title || '',
 			description: opportunity.description || '',
-			detail: opportunity.detail || null,
 			publishedAt: publishedAt,
 			closingAt: closingAt,
 			status: this.normalizeStatus(opportunity.status),
-			agencyId: agencyId,
+			agencyId: null,
 			contactIds: [], // Will be populated after people transformation
-			amount: opportunity.awardAmount || null,
-			location: opportunity.location || null,
-			category: opportunity.category || null,
-			unspscCodes: opportunity.unspscCodes || null,
-			naicsCodes: opportunity.naicsCodes || null,
-			nigpCodes: opportunity.nigpCodes || null,
-			awardeeName: opportunity.awardeeName || null,
-			awardAmount: opportunity.awardAmount || null,
-			awardDate: opportunity.awardDate ? this.parseDate(opportunity.awardDate) : null,
-			contractStartDate: opportunity.contractStartDate ? this.parseDate(opportunity.contractStartDate) : null,
-			contractEndDate: opportunity.contractEndDate ? this.parseDate(opportunity.contractEndDate) : null,
+			amount: null,
 			sourceUrl: opportunity.sourceUrl || '',
 			scrapedAt: scrapedAt,
 		}
@@ -129,21 +111,6 @@ class YourStateContractTransformer extends ContractTransformer {
 				.digest('hex')
 				.substring(0, 16)
 			return `contract-${hash}`
-		}
-	}
-
-	private generateAgencyId(agencyCode: string | null, source: string): string | null {
-		if (!agencyCode) return null
-
-		try {
-			return generateId(`${source}-${agencyCode}`, 'agency')
-		} catch {
-			// Fallback: Simple hash-based ID
-			const hash = crypto.createHash('sha256')
-				.update(`${source}-${agencyCode}`)
-				.digest('hex')
-				.substring(0, 16)
-			return `agency-${hash}`
 		}
 	}
 
@@ -189,11 +156,11 @@ class YourStateAgencyTransformer extends AgencyTransformer {
 		// }
 		
 		// Return null if no agency information
-		if (!opportunity.entity && !opportunity.agencyNumber) {
+		if (!opportunity.entity) {
 			return null
 		}
 
-		const agencyCode = opportunity.agencyNumber || opportunity.entity || ''
+		const agencyCode = opportunity.entity || ''
 		const agencyId = this.generateAgencyId(agencyCode, source)
 
 		return {

@@ -297,28 +297,19 @@ export async function readBatchFiles(sessionDir: string): Promise<any[]> {
 /**
  * Generate unique session name
  * 
- * @param source - Source name (e.g., 'yourstate')
+ * @param source - Source name (e.g., 'cherokee')
  * @param dateRange - Date range being scraped
  * @returns Unique session name
  * 
  * Format: session_SOURCE_YYYY-MM-DD_TIMESTAMP
- * Example: session_georgia_2024-01-15_1705334400000
- * 
- * TODO: Implement session name generation
- * - Format date as YYYY-MM-DD
- * - Get current timestamp
- * - Combine into session name
+ * Example: session_cherokee_2024-01-15_1705334400000
  */
 export function generateSessionName(
 	source: string,
 	dateRange: { from: Date; to: Date }
 ): string {
-	// TODO: Implement session name generation
-	// - Format date as YYYY-MM-DD
-	// - Get current timestamp
-	// - Combine into session name
 	// Format: session_SOURCE_YYYY-MM-DD_TIMESTAMP
-	// Example: session_georgia_2024-01-15_1705334400000
+	// Example: session_cherokee_2024-01-15_1705334400000
 	
 	const dateStr = dateRange.from.toISOString().split('T')[0] // YYYY-MM-DD
 	const timestamp = Date.now()
