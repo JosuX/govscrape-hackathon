@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { sanitizeFileName } from './helpers'
 
 /**
  * Storage Utilities
@@ -150,15 +151,44 @@ export async function downloadFileLocally(
 	contractId: string,
 	fileName: string
 ): Promise<string> {
-	// TODO: Implement file download
-	// - Create documents directory structure: ./output/documents/{contractId}/
-	// - Download file from URL (use fetch or Playwright)
-	// - Save to local path
-	// - Return local file path
-	// - Handle download errors gracefully
+	// Create documents directory structure: ./output/documents/{contractId}/
+	// Download file from URL and save with correct extension
+	
+	// Extract file extension from URL if fileName doesn't have one
+	let finalFileName = fileName.trim()
+	
+	// Check if fileName has an extension
+	const hasExtension = /\.\w+$/.test(finalFileName)
+	
+	// If no extension, try to extract from URL
+	if (!hasExtension) {
+		try {
+			const urlPath = new URL(url).pathname
+			const urlExtension = path.extname(urlPath)
+			if (urlExtension && urlExtension.length > 1) {
+				finalFileName = `${finalFileName}${urlExtension}`
+			}
+		} catch {
+			// If URL parsing fails, try to extract extension from URL string directly
+			const urlMatch = url.match(/\.(\w+)(?:\?|$)/)
+			if (urlMatch && urlMatch[1]) {
+				finalFileName = `${finalFileName}.${urlMatch[1]}`
+			}
+		}
+	}
+	
+	// Sanitize the file name (preserves extension)
+	finalFileName = sanitizeFileName(finalFileName)
+	
+	// Ensure we have at least some extension or default to .bin
+	if (!path.extname(finalFileName)) {
+		// Try to get content type from response headers to determine extension
+		// For now, default to .bin if we can't determine
+		finalFileName = `${finalFileName}.bin`
+	}
 	
 	const documentsDir = path.join(process.cwd(), 'output', 'documents', contractId)
-	const filePath = path.join(documentsDir, fileName)
+	const filePath = path.join(documentsDir, finalFileName)
 	
 	try {
 		// Create directory if it doesn't exist
@@ -168,6 +198,40 @@ export async function downloadFileLocally(
 		const response = await fetch(url)
 		if (!response.ok) {
 			throw new Error(`Failed to download file: ${response.status} ${response.statusText}`)
+		}
+		
+		// Try to determine file extension from Content-Type header if still missing
+		let actualFileName = finalFileName
+		const contentType = response.headers.get('content-type')
+		if (contentType && !path.extname(actualFileName) && actualFileName.endsWith('.bin')) {
+			// Map common content types to extensions
+			const contentTypeMap: Record<string, string> = {
+				'application/pdf': '.pdf',
+				'application/msword': '.doc',
+				'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+				'application/vnd.ms-excel': '.xls',
+				'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+				'application/vnd.ms-powerpoint': '.ppt',
+				'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+				'text/plain': '.txt',
+				'text/html': '.html',
+				'text/csv': '.csv',
+				'image/png': '.png',
+				'image/jpeg': '.jpg',
+				'image/gif': '.gif',
+			}
+			
+			const extension = contentTypeMap[contentType.split(';')[0].trim()]
+			if (extension) {
+				actualFileName = actualFileName.replace(/\.bin$/, extension)
+				// Update filePath
+				const newFilePath = path.join(documentsDir, actualFileName)
+				// If file already exists with .bin, we'll overwrite with correct extension
+				const arrayBuffer = await response.arrayBuffer()
+				const buffer = Buffer.from(arrayBuffer)
+				await fs.writeFile(newFilePath, buffer)
+				return newFilePath
+			}
 		}
 		
 		// Get file buffer

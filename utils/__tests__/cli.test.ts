@@ -39,9 +39,13 @@ describe('cli', () => {
 			expect(result.dateRange).toBe('2024-01-01,2024-01-31')
 		})
 
-		it('should throw error for invalid date range format', () => {
+		it('should warn for invalid date range format', () => {
+			const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
 			process.argv = ['node', 'cli.js', '--date-range=invalid']
-			expect(() => parseArgs()).toThrow('Invalid date range format')
+			const result = parseArgs()
+			expect(result.dateRange).toBeNull()
+			expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid date range format'))
+			consoleSpy.mockRestore()
 		})
 
 		it('should handle both flags', () => {
@@ -165,9 +169,14 @@ describe('cli', () => {
 			expect(range.to.getUTCDate()).toBe(31)
 		})
 
-		it('should throw error for invalid date range', () => {
+		it('should warn for invalid date range', () => {
+			const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
 			process.argv = ['node', 'cli.js', '--date-range=2024-01-31,2024-01-01']
-			expect(() => getDateRange()).toThrow('Start date must be before end date')
+			const result = getDateRange()
+			// Should fall back to yesterday
+			expect(result).toBeDefined()
+			expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Start date must be before end date'))
+			consoleSpy.mockRestore()
 		})
 	})
 })

@@ -145,8 +145,14 @@ describe('storage', () => {
 			mockFs.mkdir.mockResolvedValue(undefined)
 			mockFs.writeFile.mockResolvedValue(undefined)
 			
+			const mockHeaders = new Map<string, string>()
+			mockHeaders.set('content-type', 'application/pdf')
+			
 			const mockResponse = {
 				ok: true,
+				headers: {
+					get: jest.fn((key: string) => mockHeaders.get(key)),
+				},
 				arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(8)),
 			}
 			;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)
@@ -182,8 +188,14 @@ describe('storage', () => {
 			mockFs.mkdir.mockResolvedValue(undefined)
 			mockFs.writeFile.mockResolvedValue(undefined)
 			
+			const mockHeaders = new Map<string, string>()
+			mockHeaders.set('content-type', 'application/pdf')
+			
 			const mockResponse = {
 				ok: true,
+				headers: {
+					get: jest.fn((key: string) => mockHeaders.get(key)),
+				},
 				arrayBuffer: jest.fn().mockResolvedValue(new ArrayBuffer(8)),
 			}
 			;(global.fetch as jest.Mock).mockResolvedValue(mockResponse)

@@ -44,19 +44,104 @@ export function parseArgs(): {
 	// Hint: process.argv contains command line arguments
 	// Example: ['node', 'scraper.js', '--today']
 	
-	const args = process.argv.slice(2) // Skip 'node' and script name
+	// process.argv contains: ['node', 'script.js', ...args]
+	// When run via npm/tsx, it might be: ['tsx', 'script.ts', ...args] or ['node', 'script.js', ...args]
+	// When run via npm run, arguments after -- should be passed through, but npm might consume some
+	// Also check environment variables as fallback
+	const args = process.argv.slice(2) // Skip executable and script name
 	let isToday = false
 	let dateRange: string | null = null
 	
-	for (const arg of args) {
-		if (arg === '--today') {
+	// Check environment variables first (useful when npm consumes arguments)
+	if (process.env.DATE_RANGE) {
+		dateRange = process.env.DATE_RANGE
+	} else if (process.env.SCRAPER_DATE_RANGE) {
+		dateRange = process.env.SCRAPER_DATE_RANGE
+	}
+	
+	if (process.env.TODAY === 'true' || process.env.SCRAPER_TODAY === 'true') {
+		isToday = true
+	}
+	
+	// Debug: log all arguments
+	if (process.env.DEBUG_CLI || process.env.NODE_ENV === 'development') {
+		console.log('[CLI Debug] process.argv:', process.argv)
+		console.log('[CLI Debug] Parsed args array:', args)
+		console.log('[CLI Debug] Environment variables:', {
+			DATE_RANGE: process.env.DATE_RANGE,
+			SCRAPER_DATE_RANGE: process.env.SCRAPER_DATE_RANGE,
+			TODAY: process.env.TODAY,
+			SCRAPER_TODAY: process.env.SCRAPER_TODAY,
+		})
+	}
+	
+	// Parse command line arguments (override env vars if provided)
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i]
+		
+		if (arg === '--today' || arg === 'today') {
 			isToday = true
+			dateRange = null // Clear date range if today is set
 		} else if (arg.startsWith('--date-range=')) {
-			dateRange = arg.substring('--date-range='.length)
+			let rawRange = arg.substring('--date-range='.length)
+			// PowerShell may split comma-separated values, so check if next arg is a date
+			if (i + 1 < args.length) {
+				const nextArg = args[i + 1]
+				// If next arg looks like a date (yyyy-MM-dd), combine them
+				if (/^\d{4}-\d{2}-\d{2}$/.test(nextArg)) {
+					rawRange = `${rawRange},${nextArg}`
+					i++ // Skip the next argument since we consumed it
+				}
+			}
+			// Normalize: replace spaces with commas (PowerShell may split on comma)
+			rawRange = rawRange.replace(/\s+/g, ',')
 			// Validate format: should be yyyy-MM-dd,yyyy-MM-dd
 			const dateRangeRegex = /^\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}$/
-			if (!dateRangeRegex.test(dateRange)) {
-				throw new Error(`Invalid date range format: ${dateRange}. Expected: yyyy-MM-dd,yyyy-MM-dd`)
+			if (!dateRangeRegex.test(rawRange)) {
+				console.warn(`[CLI] Invalid date range format: "${rawRange}". Expected: yyyy-MM-dd,yyyy-MM-dd`)
+				dateRange = null
+			} else {
+				dateRange = rawRange
+				if (process.env.DEBUG_CLI || process.env.NODE_ENV === 'development') {
+					console.log('[CLI Debug] Found date-range argument:', dateRange)
+				}
+			}
+		} else if (arg === '--date-range' && i + 1 < args.length) {
+			// Handle --date-range as separate argument: --date-range 2025-12-04,2025-12-08
+			// Or --date-range 2025-12-04 2025-12-08 (PowerShell may split on comma)
+			let rawRange = args[i + 1]
+			if (i + 2 < args.length) {
+				const nextNextArg = args[i + 2]
+				// If second arg looks like a date, combine them
+				if (/^\d{4}-\d{2}-\d{2}$/.test(nextNextArg)) {
+					rawRange = `${rawRange},${nextNextArg}`
+					i++ // Skip the second date argument
+				}
+			}
+			// Normalize: replace spaces with commas
+			rawRange = rawRange.replace(/\s+/g, ',')
+			if (rawRange && /^\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}$/.test(rawRange)) {
+				dateRange = rawRange
+				i++ // Skip the date range argument
+			}
+		} else if (arg.startsWith('date-range=')) {
+			// Handle without -- prefix (in case npm strips it)
+			let rawRange = arg.substring('date-range='.length)
+			// Check if next arg is a date
+			if (i + 1 < args.length) {
+				const nextArg = args[i + 1]
+				if (/^\d{4}-\d{2}-\d{2}$/.test(nextArg)) {
+					rawRange = `${rawRange},${nextArg}`
+					i++
+				}
+			}
+			rawRange = rawRange.replace(/\s+/g, ',')
+			const dateRangeRegex = /^\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}$/
+			if (!dateRangeRegex.test(rawRange)) {
+				console.warn(`[CLI] Invalid date range format: "${rawRange}". Expected: yyyy-MM-dd,yyyy-MM-dd`)
+				dateRange = null
+			} else {
+				dateRange = rawRange
 			}
 		}
 	}
@@ -90,22 +175,43 @@ export function getDateRange(): DateRange {
 	
 	const { isToday, dateRange } = parseArgs()
 	
+	// Debug: log parsed arguments
+	if (process.env.DEBUG_CLI || process.env.NODE_ENV === 'development') {
+		console.log('[CLI Debug] Parsed args:', { isToday, dateRange })
+	}
+	
 	if (isToday) {
 		const today = getToday()
 		return { from: today, to: today }
 	}
 	
 	if (dateRange) {
-		const [fromStr, toStr] = dateRange.split(',')
+		const parts = dateRange.split(',')
+		if (parts.length !== 2) {
+			console.warn(`[CLI] Invalid date range format: "${dateRange}". Expected: yyyy-MM-dd,yyyy-MM-dd. Falling back to yesterday.`)
+			const yesterday = getYesterday()
+			return { from: yesterday, to: yesterday }
+		}
+		
+		const [fromStr, toStr] = parts.map(s => s.trim())
+		
+		if (process.env.DEBUG_CLI || process.env.NODE_ENV === 'development') {
+			console.log('[CLI Debug] Split date range:', { fromStr, toStr })
+		}
+		
 		const from = parseDate(fromStr)
 		const to = parseDate(toStr)
 		
 		if (!from || !to) {
-			throw new Error(`Invalid dates in date range: ${dateRange}`)
+			console.warn(`[CLI] Invalid dates in date range: "${dateRange}" (from: "${fromStr}" -> ${from}, to: "${toStr}" -> ${to}). Falling back to yesterday.`)
+			const yesterday = getYesterday()
+			return { from: yesterday, to: yesterday }
 		}
 		
 		if (from > to) {
-			throw new Error(`Start date must be before end date: ${dateRange}`)
+			console.warn(`[CLI] Start date must be before end date: ${dateRange}. Falling back to yesterday.`)
+			const yesterday = getYesterday()
+			return { from: yesterday, to: yesterday }
 		}
 		
 		return { from, to }

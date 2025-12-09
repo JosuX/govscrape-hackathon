@@ -27,7 +27,7 @@ import {
 	generateSessionName,
 	downloadFileLocally 
 } from '../utils/storage'
-import { log } from '../utils/helpers'
+import { log, parseFlexibleDate } from '../utils/helpers'
 import { SOURCE_TO_INTAKE, type SOURCE_OPPORTUNITY, type SOURCE_DOCUMENT } from '../schemas/source.schema'
 import { OpportunityExtractor, DocumentExtractor, ContactExtractor, TabDataExtractor } from '../extractors'
 
@@ -110,12 +110,12 @@ class YourStateScraper extends BaseScraper {
 			[Source.CHEROKEE]: {
 				baseUrl: 'https://www.cherokeebids.org',
 				searchUrl: 'https://www.cherokeebids.org/WebsiteAdmin/Procurement',
-				listingSelector: '.procurement-item, .opportunity-item, tr[data-opportunity], .listing-row',
-				titleSelector: '.title, h3, h4, .opportunity-title, td:nth-child(2)',
-				linkSelector: 'a[href*="procurement"], a[href*="opportunity"], a[href*="bid"]',
-				idSelector: '[data-id], .id, .opportunity-id, td:first-child',
+				listingSelector: 'table tbody tr, .table tbody tr, #procurementTable tbody tr, table.procurement-table tbody tr',
+				titleSelector: 'td:nth-child(2), .title, a',
+				linkSelector: 'td:nth-child(2) a, td a[href*="Procurement"], td a[href*="procurement"]',
+				idSelector: 'td:first-child, td:nth-child(1)',
 				paginationType: 'url',
-				requiresAuth: true,
+				requiresAuth: false,
 			},
 			[Source.CALEPROCURE]: {
 				baseUrl: 'https://caleprocure.ca.gov',
@@ -162,81 +162,268 @@ class YourStateScraper extends BaseScraper {
 		page: Page,
 		pageNumber: number,
 		pageSize: number
-	): Promise<Listing[]> {
+	): Promise<any> {
 		try {
 			// Build URL based on pagination type
 			let url = this.websiteConfig.searchUrl
 			
 			if (this.websiteConfig.paginationType === 'url') {
-				// Add pagination parameters to URL
+				// Cherokee Bids uses /Index/Size/{pageSize}/Page/{pageNumber} format
+				// Check if URL already has /Index/ pattern
+				if (url.includes('/Index/')) {
+					// Replace existing pagination in URL
+					url = url.replace(/\/Index\/Size\/\d+\/Page\/\d+/, `/Index/Size/${pageSize}/Page/${pageNumber}`)
+					if (!url.includes('/Index/')) {
+						// If replacement didn't work, append
+						url = `${url}/Index/Size/${pageSize}/Page/${pageNumber}`
+					}
+				} else {
+					// Add pagination path
+					url = `${url}/Index/Size/${pageSize}/Page/${pageNumber}`
+				}
+				
+				// Add sorting/filtering query parameters (sorted by opendate descending)
+				const queryParams = new URLSearchParams()
+				queryParams.set('field', 'opendate')
+				queryParams.set('isDesc', 'desc')
+				queryParams.set('switchSort', 'True')
+				
+				// Append query parameters
 				const separator = url.includes('?') ? '&' : '?'
-				url = `${url}${separator}page=${pageNumber}&pageSize=${pageSize}`
+				url = `${url}${separator}${queryParams.toString()}`
 			}
-
+			
 			log('scraper', `Fetching page ${pageNumber} from ${url}`, 'info')
 			
 			// Navigate to search/listing page
 			await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
 			await this.delay(1000) // Be polite
-
-			// Wait for listings to load
-			await page.waitForSelector(this.websiteConfig.listingSelector, { timeout: 10000 }).catch(() => {
-				log('scraper', 'Listing selector not found, trying alternative selectors', 'warn')
-			})
-
-			// Extract listing elements
-			const listingElements = await page.locator(this.websiteConfig.listingSelector).all()
+			
+			// Wait for table to load - try multiple selectors for Cherokee Bids
+			const tableSelectors = [
+				'table tbody tr',
+				'.table tbody tr',
+				'#procurementTable tbody tr',
+				'table.procurement-table tbody tr',
+				'table tr',
+			]
+			
+			let listingElements: any[] = []
+			for (const selector of tableSelectors) {
+				try {
+					await page.waitForSelector(selector, { timeout: 5000 })
+					listingElements = await page.locator(selector).all()
+					if (listingElements.length > 0) {
+						log('scraper', `Found table with selector: ${selector}`, 'info')
+						break
+					}
+				} catch {
+					continue
+				}
+			}
+			
+			// If no table rows found, try the configured selector
+			if (listingElements.length === 0) {
+			try {
+					await page.waitForSelector(this.websiteConfig.listingSelector, { timeout: 5000 })
+					listingElements = await page.locator(this.websiteConfig.listingSelector).all()
+			} catch {
+					log('scraper', 'Listing selector not found, trying alternative selectors', 'warn')
+				}
+			}
+			
+			// Filter out header row if present (check if first row looks like header)
+			if (listingElements.length > 0) {
+				const firstRow = listingElements[0]
+				const firstRowText = await firstRow.textContent().catch(() => '')
+				// If first row looks like a header (contains "Id", "Title", etc.), skip it
+				if (firstRowText && (firstRowText.includes('Id') || firstRowText.includes('Title') || firstRowText.includes('Description') || firstRowText.includes('OpenDate'))) {
+					listingElements = listingElements.slice(1)
+					log('scraper', 'Skipped header row', 'info')
+				}
+			}
 			
 			if (listingElements.length === 0) {
 				log('scraper', 'No listings found on page', 'warn')
-				return []
+				return { listings: [], shouldStopPagination: false }
 			}
-
+			
 			log('scraper', `Found ${listingElements.length} listings on page ${pageNumber}`, 'info')
-
+			
 			// Extract data from each listing
 			const listings: Listing[] = []
+			let shouldStopPagination = false // Flag to stop if we've passed the date range
+			
 			for (let i = 0; i < listingElements.length; i++) {
 				try {
 					const element = listingElements[i]
 					
-					// Extract ID
-					const id = await element.locator(this.websiteConfig.idSelector).first().textContent().catch(() => null)
-						|| await element.getAttribute('data-id')
-						|| `listing-${pageNumber}-${i + 1}`
+					// For table rows, extract from cells
+					// Try multiple approaches to get ID
+					let id: string | null = null
+					const idCell = element.locator('td:first-child, td:nth-child(1)').first()
+					const idText = await idCell.textContent().catch(() => null)
+					if (idText && idText.trim()) {
+						id = idText.trim()
+					} else {
+						id = await element.getAttribute('data-id').catch(() => null)
+						if (!id) {
+							id = `listing-${pageNumber}-${i + 1}`
+						}
+					}
 
-					// Extract title
-					const title = await element.locator(this.websiteConfig.titleSelector).first().textContent().catch(() => null)
-						|| 'Untitled Opportunity'
+					// Extract title from second column or link text
+					let title: string | null = null
+					const titleCell = element.locator('td:nth-child(2)').first()
+					title = await titleCell.textContent().catch(() => null)
+					
+					// If no title in cell, try link text
+					if (!title || !title.trim()) {
+						const titleLink = element.locator('td:nth-child(2) a, td a').first()
+						title = await titleLink.textContent().catch(() => null)
+					}
+					
+					if (!title || !title.trim()) {
+						title = 'Untitled Opportunity'
+					}
 
-					// Extract link
-					const linkElement = await element.locator(this.websiteConfig.linkSelector).first()
-					const link = await linkElement.getAttribute('href').catch(() => null)
+					// Extract link - try multiple selectors
+					let link: string | null = null
+					const linkSelectors = [
+						'td:nth-child(2) a',
+						'td a[href*="Procurement"]',
+						'td a[href*="procurement"]',
+						'td a',
+						'a[href]',
+					]
+					
+					for (const linkSelector of linkSelectors) {
+						try {
+							const linkElement = element.locator(linkSelector).first()
+							const linkCount = await linkElement.count()
+							if (linkCount > 0) {
+								link = await linkElement.getAttribute('href').catch(() => null)
+								if (link) break
+							}
+						} catch {
+						continue
+					}
+					}
+					
+					// Extract date from table (OpenDate column)
+					// Cherokee Bids table structure: Id | Title | Description | OpenDate | CloseDate | Status
+					// Note: There might be a checkbox column, so we check multiple columns
+					// OpenDate format: MM/DD/YYYY (e.g., "12/08/2025")
+					let openDateStr: string | null = null
+					
+					// Try all columns to find the date (table might have checkbox column)
+					// Check columns 3-6 (Description, OpenDate, CloseDate, Status)
+					const datePattern = /^\d{1,2}\/\d{1,2}\/\d{4}$|^\d{4}-\d{1,2}-\d{1,2}$|^[A-Za-z]{3}\s+\d{1,2},?\s+\d{4}$/
+					
+					for (let colNum = 3; colNum <= 6; colNum++) {
+						try {
+							const cell = element.locator(`td:nth-child(${colNum})`).first()
+							const cellText = await cell.textContent().catch(() => null)
+							if (cellText && cellText.trim()) {
+								const trimmed = cellText.trim()
+								// Check if it looks like a date
+								if (datePattern.test(trimmed)) {
+									openDateStr = trimmed
+									break // Found date, stop searching
+								}
+							}
+						} catch {
+							continue
+						}
+					}
+					
+					// If still not found, try alternative selectors
+					if (!openDateStr) {
+						const fallbackSelectors = [
+							'[data-opendate]',
+							'.open-date',
+							'[data-date]',
+						]
+						
+						for (const dateSelector of fallbackSelectors) {
+							try {
+								const dateCell = element.locator(dateSelector).first()
+								const dateText = await dateCell.textContent().catch(() => null)
+								if (dateText && dateText.trim()) {
+									const trimmed = dateText.trim()
+									if (datePattern.test(trimmed)) {
+										openDateStr = trimmed
+										break
+									}
+								}
+							} catch {
+								continue
+							}
+						}
+					}
+					
+					// Filter by date range if date is available
+					let withinDateRange = true
+					if (this.config.dateRange) {
+						if (openDateStr) {
+							const listingDate = parseFlexibleDate(openDateStr)
+							if (listingDate) {
+								const fromDate = new Date(this.config.dateRange.from)
+								const toDate = new Date(this.config.dateRange.to)
+								// Set time to start/end of day for comparison
+								fromDate.setHours(0, 0, 0, 0)
+								toDate.setHours(23, 59, 59, 999)
+								
+								withinDateRange = listingDate >= fromDate && listingDate <= toDate
+								
+								// Since results are sorted descending by opendate, if we encounter
+								// a listing that's before our date range, we can stop pagination
+								// All subsequent listings will also be before the date range
+								if (listingDate < fromDate) {
+									shouldStopPagination = true
+									log('scraper', `Stopping pagination: found listing ${id} with date ${openDateStr} (${listingDate.toISOString().split('T')[0]}) before date range ${fromDate.toISOString().split('T')[0]}`, 'info')
+									break // Stop processing this page, we've gone past the date range
+								}
+							} else {
+								// Date string found but couldn't parse - skip this listing, continue to next
+								continue
+							}
+						} else {
+							// No date found - skip this listing but continue to next page (might find dates on next page)
+							continue
+						}
+					}
 					
 					// Build full URL if relative
 					const fullUrl = link 
 						? (link.startsWith('http') ? link : new URL(link, this.websiteConfig.baseUrl).href)
 						: null
-
-					if (fullUrl) {
+					
+					// Only add if we have at least an ID and title, and it's within date range
+					if (id && title && (fullUrl || id !== `listing-${pageNumber}-${i + 1}`) && withinDateRange) {
 						listings.push({
 							id: id.trim(),
 							title: title.trim(),
-							link: fullUrl,
+							link: fullUrl || `${this.websiteConfig.searchUrl}?id=${id}`,
 							pageNumber,
 							index: i + 1,
 						})
+					}
+					
+					// If we should stop pagination, break out of the loop
+					if (shouldStopPagination) {
+						break
 					}
 				} catch (error) {
 					log('scraper', `Error extracting listing ${i + 1}: ${error}`, 'warn')
 					continue
 				}
 			}
-
-			return listings
+			
+			return { listings, shouldStopPagination }
 		} catch (error) {
 			log('scraper', `Error fetching listings: ${error}`, 'error')
-			return []
+			return { listings: [], shouldStopPagination: false }
 		}
 	}
 
@@ -258,7 +445,7 @@ class YourStateScraper extends BaseScraper {
 			// Navigate to detail page
 			await detailPage.goto(listing.link, { waitUntil: 'networkidle', timeout: 30000 })
 			await this.delay(1000) // Be polite
-
+			
 			// Check if page uses tabs - extract tab data if available
 			let tabData: Record<string, string | null> | null = null
 			try {
@@ -294,13 +481,13 @@ class YourStateScraper extends BaseScraper {
 					log('scraper', `Error extracting contact info: ${error}`, 'warn')
 				}
 			}
-
+			
 			// Extract documents using DocumentExtractor
 			// If tabs were found, documents might be in a "Documents" tab
 			// DocumentExtractor will search the entire page, including tab content
 			const docExtractor = new DocumentExtractor(opportunity.id)
 			let documents = await docExtractor.extract(detailPage)
-
+			
 			// If no documents found and we have tab data, try extracting from "Documents" tab
 			if (documents.length === 0 && tabData) {
 				const documentsTabContent = tabData['documents'] || tabData['attachments'] || tabData['files']
@@ -322,23 +509,24 @@ class YourStateScraper extends BaseScraper {
 					}
 				}
 			}
-
-			// Download documents
+			
+			// Download documents (preserve original URL, download is for local backup)
 			for (const doc of documents) {
 				try {
 					log('scraper', `Downloading document: ${doc.fileName}`, 'info')
-					const localPath = await downloadFileLocally(
+					// Download file locally for backup, but keep original URL in downloadUrl
+					await downloadFileLocally(
 						doc.downloadUrl,
 						opportunity.id,
 						doc.fileName
 					)
-					doc.downloadUrl = localPath // Update to local path
+					// Note: downloadUrl remains the original website URL, not the local path
 				} catch (error) {
 					log('scraper', `Error downloading document ${doc.fileName}: ${error}`, 'warn')
-					// Continue even if download fails
+					// Continue even if download fails - original URL is still preserved
 				}
 			}
-
+			
 			// Return structured data matching SOURCE_TO_INTAKE schema
 			return {
 				opportunity,
@@ -363,7 +551,7 @@ class YourStateScraper extends BaseScraper {
 			log('scraper', 'No items to save in batch', 'warn')
 			return
 		}
-
+		
 		const output = {
 			metadata: {
 				scrapedAt: new Date().toISOString(),
@@ -377,7 +565,7 @@ class YourStateScraper extends BaseScraper {
 			},
 			items: items,
 		}
-
+		
 		// Validate against schema
 		try {
 			SOURCE_TO_INTAKE.parse(output)
@@ -385,7 +573,7 @@ class YourStateScraper extends BaseScraper {
 			log('scraper', `Schema validation error: ${error}`, 'error')
 			throw error
 		}
-
+		
 		await saveBatchToFile(output, this.sessionDirName, this.batchNum)
 		log('scraper', `Saved batch ${this.batchNum} with ${items.length} items`, 'info')
 		this.batchNum++
@@ -409,7 +597,7 @@ class YourStateScraper extends BaseScraper {
 				'--disable-gpu',
 			],
 		})
-
+		
 		log('scraper', 'Browser launched successfully', 'info')
 		return browser
 	}
@@ -420,12 +608,12 @@ class YourStateScraper extends BaseScraper {
 	 * Generates unique session directory name and creates it in the file system.
 	 */
 	protected async createSessionDirectory(): Promise<void> {
-		this.sessionDirName = generateSessionName(
+		const sessionName = generateSessionName(
 			this.config.source,
 			this.config.dateRange
 		)
 		
-		await createSessionDirectory(this.sessionDirName, 'source')
+		this.sessionDirName = await createSessionDirectory(sessionName, 'source')
 		log('scraper', `Session directory created: ${this.sessionDirName}`, 'info')
 	}
 
@@ -453,16 +641,25 @@ class YourStateScraper extends BaseScraper {
 					log('scraper', `Processing page ${this.currentPage}...`, 'info')
 
 					// Fetch listings for current page
-					const listings = await this.fetchListings(
+					const result = await this.fetchListings(
 						mainPage,
 						this.currentPage,
 						this.config.batchSize || 50
 					)
+					
+					const listings = result.listings || []
+					const shouldStopPagination = result.shouldStopPagination || false
 
 					if (listings.length === 0) {
-						log('scraper', 'No more listings found', 'info')
-						hasMorePages = false
-						break
+						log('scraper', 'No more listings found on this page', 'info')
+						// If we should stop pagination (past date range) or no listings, stop
+						if (shouldStopPagination) {
+							log('scraper', 'Stopping pagination: reached listings past date range', 'info')
+							hasMorePages = false
+							break
+						}
+						// If no listings but not past date range, continue to next page
+						// (might be listings without dates that we skipped)
 					}
 
 					// Process each opportunity
@@ -487,7 +684,14 @@ class YourStateScraper extends BaseScraper {
 						allItems.push(...batchItems)
 					}
 
-					// Check if there are more pages
+					// Check if we should stop pagination (found listings before date range)
+					if (shouldStopPagination) {
+						log('scraper', 'Stopping pagination: reached listings before date range', 'info')
+						hasMorePages = false
+						break
+					}
+
+					// Check if there are more pages (if we got fewer listings than page size)
 					if (listings.length < (this.config.batchSize || 50)) {
 						hasMorePages = false
 					}
@@ -527,6 +731,7 @@ async function main() {
 	try {
 		// Parse CLI arguments to get date range
 		const dateRange = getDateRange()
+		log('scraper', `Date range: ${dateRange.from.toISOString()} to ${dateRange.to.toISOString()}`, 'info')
 
 		// Create scraper config
 		const config: ScraperConfig = {

@@ -171,6 +171,23 @@ export class DocumentExtractor extends BaseExtractor<SOURCE_DOCUMENT[]> {
 				// Clean up file name
 				fileName = fileName.trim()
 				if (!fileName) continue
+				
+				// Ensure file name has an extension - extract from URL if missing
+				if (!fileName.match(/\.\w+$/)) {
+					try {
+						const urlPath = new URL(absoluteUrl).pathname
+						const urlExtension = urlPath.match(/\.(\w+)(?:\?|$)/)
+						if (urlExtension && urlExtension[1]) {
+							fileName = `${fileName}.${urlExtension[1]}`
+						}
+					} catch {
+						// If URL parsing fails, try simple regex match
+						const urlMatch = absoluteUrl.match(/\.(\w+)(?:\?|$)/)
+						if (urlMatch && urlMatch[1]) {
+							fileName = `${fileName}.${urlMatch[1]}`
+						}
+					}
+				}
 
 				// Try to extract file size (if available in data attributes or nearby text)
 				const fileSize = await this.extractFileSize(link)

@@ -41,7 +41,10 @@ export class ContactExtractor extends BaseExtractor<ContactData> {
 		await page.waitForLoadState('networkidle')
 
 		// Try to find contact section first
+		// Cherokee Bids: Look for "Buyer Contact Information" section
 		const contactSectionSelectors = [
+			':has-text("Buyer Contact Information")',
+			':has-text("Contact Information")',
 			'.contact-section',
 			'.buyer-info',
 			'.contact-information',
@@ -70,28 +73,104 @@ export class ContactExtractor extends BaseExtractor<ContactData> {
 		const searchContext = contactContainer || page
 
 		// Extract buyer name
-		const buyerName = await this.extractFromMultipleSelectors(searchContext, [
-			'.buyer-name',
-			'.contact-name',
-			'[data-buyer-name]',
-			'[data-contact-name]',
-			'.procurement-officer-name',
-			'.officer-name',
-			'label:has-text("Name") + *',
-			'label:has-text("Contact") + *',
-		]) || await this.extractFromTable(searchContext, ['Name', 'Contact Name', 'Buyer', 'Officer'])
+		// Cherokee Bids: Look for "Name:" label followed by the name
+		let buyerName = await this.extractLabeledValue(searchContext, ['Name', 'Contact Name', 'Buyer', 'Officer'])
+		
+		if (!buyerName) {
+			buyerName = await this.extractFromMultipleSelectors(searchContext, [
+				'.buyer-name',
+				'.contact-name',
+				'[data-buyer-name]',
+				'[data-contact-name]',
+				'.procurement-officer-name',
+				'.officer-name',
+				'label:has-text("Name") + *',
+				'label:has-text("Contact") + *',
+			]) || await this.extractFromTable(searchContext, ['Name', 'Contact Name', 'Buyer', 'Officer'])
+		}
 
 		// Extract buyer email
-		const buyerEmail = await this.extractEmail(searchContext)
+		let buyerEmail = await this.extractLabeledValue(searchContext, ['Email', 'E-mail', 'Contact Email'])
+		
+		if (!buyerEmail) {
+			buyerEmail = await this.extractEmail(searchContext)
+		}
 
 		// Extract buyer phone
-		const buyerPhone = await this.extractPhone(searchContext)
+		let buyerPhone = await this.extractLabeledValue(searchContext, ['Phone', 'Telephone', 'Contact Phone', 'Phone Number'])
+		
+		if (!buyerPhone) {
+			buyerPhone = await this.extractPhone(searchContext)
+		}
 
 		return {
 			buyerName: buyerName || '',
 			buyerEmail,
 			buyerPhone,
 		}
+	}
+
+	/**
+	 * Extract value from labeled sections (e.g., "Name: value", "Email: value")
+	 * Cherokee Bids uses this pattern
+	 */
+	private async extractLabeledValue(
+		context: Page | Locator,
+		labels: string[]
+	): Promise<string | null> {
+		try {
+			// Look for text containing the label followed by a value
+			for (const label of labels) {
+				// Try to find element containing the label
+				const labelElement = context.locator(`:has-text("${label}")`).first()
+				const count = await labelElement.count()
+				if (count > 0) {
+					// Get the text content
+					const text = await this.extractText(labelElement)
+					if (text) {
+						// Extract value after label (e.g., "Name: michelle parsons" -> "michelle parsons")
+						const match = text.match(new RegExp(`${label}[:\\s]+(.+)`, 'i'))
+						if (match && match[1]) {
+							return match[1].trim()
+						}
+					}
+					
+					// Try to get value from next sibling or following element
+					const nextSibling = labelElement.locator('+ *').first()
+					const siblingCount = await nextSibling.count()
+					if (siblingCount > 0) {
+						const siblingText = await this.extractText(nextSibling)
+						if (siblingText && siblingText.trim()) {
+							return siblingText.trim()
+						}
+					}
+					
+					// Try to get value from parent container's text
+					const parent = labelElement.locator('..').first()
+					const parentText = await this.extractText(parent)
+					if (parentText) {
+						const match = parentText.match(new RegExp(`${label}[:\\s]+(.+)`, 'i'))
+						if (match && match[1]) {
+							return match[1].trim()
+						}
+					}
+					
+					// Try to find the value in the same section/container
+					// Look for text nodes or elements after the label
+					const followingText = labelElement.locator('~ *').first()
+					const followingCount = await followingText.count()
+					if (followingCount > 0) {
+						const followingTextContent = await this.extractText(followingText)
+						if (followingTextContent && followingTextContent.trim()) {
+							return followingTextContent.trim()
+						}
+					}
+				}
+			}
+		} catch {
+			// Ignore errors
+		}
+		return null
 	}
 
 	/**
